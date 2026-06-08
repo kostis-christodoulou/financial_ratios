@@ -6,7 +6,7 @@ Local EDGAR financial statement and ratio analysis for public companies.
 
 - Resolves tickers or company names to SEC CIKs.
 - Downloads official SEC submissions and XBRL company facts.
-- Stores raw JSON, normalized facts, statement items, ratios, and components in DuckDB.
+- Stores companies, filings, selected statement items, ratios, and ratio components in DuckDB.
 - Uses Pandas for inspectable transformations.
 - Serves a local Notion-like dashboard with no cloud dependency.
 - Plots ratios over selected date ranges with Plotly.
@@ -43,10 +43,12 @@ Company search is data-driven from the SEC ticker mapping. It scores exact
 ticker matches, legal-name matches, partial name matches, acronyms, token
 overlap, and fuzzy similarity across the full SEC company universe.
 
-Refreshes keep the raw SEC companyfacts JSON cached locally, but flatten only
-the requested fiscal years and ratio-relevant tags into DuckDB. This keeps
-large companies much faster to load while preserving the original SEC payload
-for later reprocessing.
+Refreshes keep the raw SEC companyfacts JSON in the local HTTP cache, not in
+DuckDB. DuckDB stores only the analysis-ready rows needed by the app: company
+metadata, filings, selected statement items, ratios, and ratio components. This
+keeps the database much smaller while preserving enough source detail to audit
+each ratio back to its numerator, denominator, XBRL tags, accession number, and
+filing.
 
 ```bash
 uv run finstat refresh MSFT --years 2024 2025 2026
@@ -56,8 +58,8 @@ uv run finstat refresh XOM --years 2024 2025 2026
 ```
 
 In the web app, type a ticker or company name, choose a suggestion if useful,
-or use a quick ticker button, then click **Refresh EDGAR**.
-Once refreshed, the company appears in the loaded-company selector.
+then click **Search**. Search refreshes an existing local company or adds a new
+one from EDGAR. Once loaded, the company appears in the local company selector.
 
 ## Plotting
 
@@ -78,3 +80,6 @@ HTTP cache files are stored in:
 ```text
 data/cache
 ```
+
+The cache can be deleted at any time; the app will re-download SEC responses as
+needed. The DuckDB database intentionally does not persist raw EDGAR JSON.

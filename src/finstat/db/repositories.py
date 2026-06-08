@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -15,7 +13,7 @@ from finstat.config import Settings
 from finstat.db.connection import connect, ensure_db
 from finstat.edgar.client import EdgarClient
 from finstat.edgar.identifiers import resolve_ticker, search_companies
-from finstat.normalize import canonical_fact_tags, content_hash, flatten_companyfacts, select_statement_items, submissions_to_frames
+from finstat.normalize import canonical_fact_tags, flatten_companyfacts, select_statement_items, submissions_to_frames
 
 
 class FinancialRepository:
@@ -34,13 +32,12 @@ class FinancialRepository:
 
         submissions = client.submissions(cik, refresh=refresh_http)
         facts_payload = client.companyfacts(cik, refresh=refresh_http)
-        source_hash = content_hash(facts_payload)
         facts = flatten_companyfacts(
             cik,
             facts_payload,
-            source_hash,
+            "edgar-companyfacts-cache",
             years=years,
-            tags=canonical_fact_tags() if years else None,
+            tags=canonical_fact_tags(),
         )
         company, filings = submissions_to_frames(cik, submissions)
         report_dates = {}
@@ -57,8 +54,7 @@ class FinancialRepository:
         try:
             self._replace_company(con, company)
             self._replace_filings(con, cik, filings)
-            self._insert_raw_companyfacts(con, cik, facts_payload, source_hash)
-            self._replace_facts(con, cik, facts)
+            self._discard_legacy_fact_storage(con, cik)
             self._replace_statement_items(con, cik, years, statement_items)
             self._replace_ratios(con, cik, years, ratios, components)
         finally:
@@ -287,35 +283,9 @@ class FinancialRepository:
             con.unregister("filings_df")
 
     @staticmethod
-    def _insert_raw_companyfacts(con: duckdb.DuckDBPyConnection, cik: str, payload: dict, source_hash: str) -> None:
-        exists = con.execute(
-            "SELECT 1 FROM raw_companyfacts WHERE cik = ? AND content_hash = ? LIMIT 1",
-            [cik, source_hash],
-        ).fetchone()
-        if exists:
-            return
-        row = pd.DataFrame(
-            [
-                {
-                    "cik": cik,
-                    "retrieved_at": datetime.utcnow(),
-                    "source_url": f"https://data.sec.gov/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json",
-                    "json_blob": json.dumps(payload),
-                    "content_hash": source_hash,
-                }
-            ]
-        )
-        con.register("raw_df", row)
-        con.execute("INSERT INTO raw_companyfacts SELECT * FROM raw_df")
-        con.unregister("raw_df")
-
-    @staticmethod
-    def _replace_facts(con: duckdb.DuckDBPyConnection, cik: str, facts: pd.DataFrame) -> None:
+    def _discard_legacy_fact_storage(con: duckdb.DuckDBPyConnection, cik: str) -> None:
         con.execute("DELETE FROM facts WHERE cik = ?", [cik])
-        if not facts.empty:
-            con.register("facts_df", facts)
-            con.execute("INSERT INTO facts SELECT * FROM facts_df")
-            con.unregister("facts_df")
+        con.execute("DELETE FROM raw_companyfacts WHERE cik = ?", [cik])
 
     @staticmethod
     def _replace_statement_items(
