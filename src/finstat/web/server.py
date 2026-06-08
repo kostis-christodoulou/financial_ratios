@@ -210,6 +210,7 @@ HTML = """<!doctype html>
         <button class="active" onclick="showView('overview', this)">Overview</button>
         <button onclick="showView('statements', this)">Statements</button>
         <button onclick="showView('ratios', this)">Ratios</button>
+        <button onclick="showView('management', this)">Management</button>
         <button onclick="showView('plot', this)">Plot</button>
         <button onclick="showView('filings', this)">Filings</button>
       </div>
@@ -225,6 +226,7 @@ HTML = """<!doctype html>
       <div id="overview" class="view"></div>
       <div id="statements" class="view" style="display:none"></div>
       <div id="ratios" class="view" style="display:none"></div>
+      <div id="management" class="view" style="display:none"></div>
       <div id="plot" class="view" style="display:none"></div>
       <div id="filings" class="view" style="display:none"></div>
     </main>
@@ -362,6 +364,7 @@ HTML = """<!doctype html>
       renderOverview();
       renderStatements();
       renderRatios();
+      renderManagement();
       renderPlot();
       renderFilings();
     }
@@ -369,7 +372,7 @@ HTML = """<!doctype html>
       document.getElementById("title").textContent = "";
       document.getElementById("meta").textContent = "";
       document.getElementById("refreshed").textContent = "";
-      ["overview", "statements", "ratios", "plot", "filings"].forEach(id => {
+      ["overview", "statements", "ratios", "management", "plot", "filings"].forEach(id => {
         document.getElementById(id).innerHTML = `<div class="section subtle">Loading...</div>`;
       });
     }
@@ -378,7 +381,7 @@ HTML = """<!doctype html>
       document.getElementById("title").textContent = "Finstat";
       document.getElementById("meta").textContent = loadedCompanies.length ? "Choose a company" : "No companies loaded";
       document.getElementById("refreshed").textContent = "";
-      ["overview", "statements", "ratios", "plot", "filings"].forEach(id => {
+      ["overview", "statements", "ratios", "management", "plot", "filings"].forEach(id => {
         document.getElementById(id).innerHTML = `<div class="section subtle">No local data loaded.</div>`;
       });
     }
@@ -386,7 +389,7 @@ HTML = """<!doctype html>
       document.getElementById("title").textContent = query;
       document.getElementById("meta").textContent = "No local data loaded";
       document.getElementById("refreshed").textContent = "";
-      ["overview", "statements", "ratios", "plot", "filings"].forEach(id => {
+      ["overview", "statements", "ratios", "management", "plot", "filings"].forEach(id => {
         document.getElementById(id).innerHTML = `<div class="section subtle">No local data for ${query}.</div>`;
       });
     }
@@ -418,6 +421,10 @@ HTML = """<!doctype html>
         };
       });
       document.getElementById("ratios").innerHTML = `<div class="section scroll">${table(rows, ["fiscal_year","fiscal_period","period_end","ratio_category","ratio_name","value","numerator_detail","denominator_detail","formula_version","quality_flag"])}</div>`;
+    }
+    function renderManagement() {
+      const rows = current.management || [];
+      document.getElementById("management").innerHTML = `<div class="section scroll">${table(rows, ["form","report_date","filing_date","summary","sentiment_label","sentiment_score","positive_terms","negative_terms","word_count","source_url"])}</div>`;
     }
     function ratioComponentLabels(formulaVersion) {
       const formula = String(formulaVersion || "").replace(/^v\\d+:\\s*/, "");
@@ -509,6 +516,7 @@ HTML = """<!doctype html>
       const labels = {
         numerator_detail: "numerator",
         denominator_detail: "denominator",
+        source_url: "source",
       };
       return labels[key] || key.replaceAll("_", " ");
     }

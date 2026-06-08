@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -8,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 
+from finstat.analysis.management import analyze_management_discussion
 from finstat.analysis.ratios import calculate_ratios
 from finstat.config import Settings
 from finstat.db.connection import connect, ensure_db
@@ -49,14 +51,22 @@ class FinancialRepository:
             report_dates_by_accession=report_dates,
         )
         ratios, components = calculate_ratios(statement_items)
+        management_discussions = self._extract_management_discussions(
+            client,
+            filings,
+            years=years,
+            refresh_http=refresh_http,
+        )
 
         con = connect(self.settings.db_path)
         try:
+            self._ensure_management_discussions_table(con)
             self._replace_company(con, company)
             self._replace_filings(con, cik, filings)
             self._discard_legacy_fact_storage(con, cik)
             self._replace_statement_items(con, cik, years, statement_items)
             self._replace_ratios(con, cik, years, ratios, components)
+            self._replace_management_discussions(con, cik, management_discussions)
         finally:
             con.close()
         return {"cik": cik, "ticker": mapping["ticker"], "name": mapping["name"]}
@@ -68,6 +78,7 @@ class FinancialRepository:
             if not company:
                 return {}
             cik = company["cik"]
+            self._ensure_management_discussions_table(con)
             periods = con.execute(
                 """
                 SELECT DISTINCT fiscal_year, fiscal_period, period_end, form
@@ -105,12 +116,24 @@ class FinancialRepository:
                 """,
                 [cik],
             ).fetchdf()
+            management = con.execute(
+                """
+                SELECT form, filing_date, report_date, section_title, summary,
+                       sentiment_label, sentiment_score, positive_terms,
+                       negative_terms, word_count, source_url, accession_number
+                FROM management_discussions
+                WHERE cik = ?
+                ORDER BY report_date DESC, filing_date DESC
+                """,
+                [cik],
+            ).fetchdf()
             return {
                 "company": company,
                 "periods": periods.to_dict("records"),
                 "ratios": ratios.to_dict("records"),
                 "statements": statements.to_dict("records"),
                 "filings": filings.to_dict("records"),
+                "management": management.to_dict("records"),
             }
         finally:
             con.close()
@@ -286,6 +309,97 @@ class FinancialRepository:
     def _discard_legacy_fact_storage(con: duckdb.DuckDBPyConnection, cik: str) -> None:
         con.execute("DELETE FROM facts WHERE cik = ?", [cik])
         con.execute("DELETE FROM raw_companyfacts WHERE cik = ?", [cik])
+
+    @staticmethod
+    def _ensure_management_discussions_table(con: duckdb.DuckDBPyConnection) -> None:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS management_discussions (
+                cik VARCHAR,
+                accession_number VARCHAR,
+                form VARCHAR,
+                filing_date DATE,
+                report_date DATE,
+                section_title VARCHAR,
+                discussion_text VARCHAR,
+                summary VARCHAR,
+                sentiment_label VARCHAR,
+                sentiment_score DOUBLE,
+                positive_terms INTEGER,
+                negative_terms INTEGER,
+                word_count INTEGER,
+                source_url VARCHAR,
+                extracted_at TIMESTAMP,
+                PRIMARY KEY (cik, accession_number)
+            )
+            """
+        )
+
+    @staticmethod
+    def _replace_management_discussions(con: duckdb.DuckDBPyConnection, cik: str, discussions: pd.DataFrame) -> None:
+        if discussions.empty:
+            return
+        accessions = discussions["accession_number"].dropna().unique().tolist()
+        if accessions:
+            placeholders = ",".join(["?"] * len(accessions))
+            con.execute(
+                f"DELETE FROM management_discussions WHERE cik = ? AND accession_number IN ({placeholders})",
+                [cik, *accessions],
+            )
+        con.register("management_df", discussions)
+        con.execute("INSERT INTO management_discussions SELECT * FROM management_df")
+        con.unregister("management_df")
+
+    @staticmethod
+    def _extract_management_discussions(
+        client: EdgarClient,
+        filings: pd.DataFrame,
+        years: Iterable[int] | None,
+        refresh_http: bool,
+    ) -> pd.DataFrame:
+        if filings.empty:
+            return pd.DataFrame()
+        work = filings[
+            filings["form"].isin(["10-K", "10-Q", "10-K/A", "10-Q/A"])
+            & filings["primary_document"].notna()
+            & filings["report_date"].notna()
+        ].copy()
+        if years:
+            year_set = set(int(year) for year in years)
+            report_year = pd.to_datetime(work["report_date"], errors="coerce").dt.year
+            work = work[report_year.isin(year_set)]
+        work = work.sort_values(["report_date", "filing_date"], ascending=[False, False]).head(8)
+
+        rows = []
+        for _, filing in work.iterrows():
+            document_url = str(filing["source_url"]).rstrip("/") + "/" + str(filing["primary_document"]).lstrip("/")
+            try:
+                document_html = client.get_text(document_url, refresh=refresh_http)
+                analysis = analyze_management_discussion(document_html, str(filing["form"]))
+            except Exception:
+                analysis = None
+            if analysis is None:
+                continue
+            rows.append(
+                {
+                    "cik": filing["cik"],
+                    "accession_number": filing["accession_number"],
+                    "form": filing["form"],
+                    "filing_date": filing["filing_date"],
+                    "report_date": filing["report_date"],
+                    "section_title": analysis.section_title,
+                    "discussion_text": analysis.text,
+                    "summary": analysis.summary,
+                    "sentiment_label": analysis.sentiment_label,
+                    "sentiment_score": analysis.sentiment_score,
+                    "positive_terms": analysis.positive_terms,
+                    "negative_terms": analysis.negative_terms,
+                    "word_count": analysis.word_count,
+                    "source_url": document_url,
+                    "extracted_at": datetime.utcnow(),
+                }
+            )
+        return pd.DataFrame(rows)
 
     @staticmethod
     def _replace_statement_items(

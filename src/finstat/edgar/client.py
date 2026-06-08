@@ -51,15 +51,27 @@ class EdgarClient:
         )
 
     def get_json(self, url: str, refresh: bool = False) -> Dict[str, Any]:
-        cache_path = self._cache_path(url)
+        cache_path = self._cache_path(url, "json")
         if cache_path.exists() and not refresh:
             return json.loads(cache_path.read_text())
 
-        payload = self._request(url)
+        payload = self._request_json(url)
         cache_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
         return payload
 
-    def _request(self, url: str) -> Dict[str, Any]:
+    def get_text(self, url: str, refresh: bool = False) -> str:
+        cache_path = self._cache_path(url, "txt")
+        if cache_path.exists() and not refresh:
+            return cache_path.read_text(errors="replace")
+
+        payload = self._request_text(url, accept="text/html,application/xhtml+xml,text/plain")
+        cache_path.write_text(payload)
+        return payload
+
+    def _request_json(self, url: str) -> Dict[str, Any]:
+        return json.loads(self._request_text(url, accept="application/json"))
+
+    def _request_text(self, url: str, accept: str) -> str:
         elapsed = time.monotonic() - self._last_request_at
         if elapsed < self.min_interval:
             time.sleep(self.min_interval - elapsed)
@@ -68,7 +80,7 @@ class EdgarClient:
             url,
             headers={
                 "User-Agent": self.user_agent,
-                "Accept": "application/json",
+                "Accept": accept,
                 "Accept-Encoding": "identity",
             },
         )
@@ -77,7 +89,7 @@ class EdgarClient:
             try:
                 with urlopen(request, timeout=30) as response:
                     self._last_request_at = time.monotonic()
-                    return json.loads(response.read().decode("utf-8"))
+                    return response.read().decode("utf-8", errors="replace")
             except HTTPError as exc:
                 last_error = exc
                 if exc.code not in {429, 500, 502, 503, 504}:
@@ -89,7 +101,6 @@ class EdgarClient:
             raise last_error
         raise RuntimeError(f"Failed to fetch {url}")
 
-    def _cache_path(self, url: str) -> Path:
+    def _cache_path(self, url: str, suffix: str) -> Path:
         digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
-        return self.cache_dir / f"{digest}.json"
-
+        return self.cache_dir / f"{digest}.{suffix}"

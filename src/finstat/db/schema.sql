@@ -98,6 +98,25 @@ CREATE TABLE IF NOT EXISTS ratio_components (
     accession_number VARCHAR
 );
 
+CREATE TABLE IF NOT EXISTS management_discussions (
+    cik VARCHAR,
+    accession_number VARCHAR,
+    form VARCHAR,
+    filing_date DATE,
+    report_date DATE,
+    section_title VARCHAR,
+    discussion_text VARCHAR,
+    summary VARCHAR,
+    sentiment_label VARCHAR,
+    sentiment_score DOUBLE,
+    positive_terms INTEGER,
+    negative_terms INTEGER,
+    word_count INTEGER,
+    source_url VARCHAR,
+    extracted_at TIMESTAMP,
+    PRIMARY KEY (cik, accession_number)
+);
+
 CREATE TABLE IF NOT EXISTS analysis_notes (
     id VARCHAR PRIMARY KEY,
     cik VARCHAR,
@@ -109,4 +128,3 @@ CREATE TABLE IF NOT EXISTS analysis_notes (
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
-

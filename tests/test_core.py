@@ -5,6 +5,7 @@ import json
 
 import pandas as pd
 
+from finstat.analysis.management import analyze_management_discussion
 from finstat.analysis.ratios import calculate_ratios
 from finstat.edgar.client import EdgarClient
 from finstat.edgar.identifiers import resolve_ticker, search_companies
@@ -56,6 +57,31 @@ class CoreTests(unittest.TestCase):
         cleaned = _json_safe(payload)
         self.assertEqual(cleaned, {"value": None, "nested": [{"value": None}, {"value": None}]})
         self.assertEqual(json.dumps(cleaned, allow_nan=False), '{"value": null, "nested": [{"value": null}, {"value": null}]}')
+
+    def test_management_discussion_analysis(self) -> None:
+        body = " ".join(
+            [
+                "Revenue increased due to strong demand and improved operating margin.",
+                "Net income increased as costs declined and cash flow remained strong.",
+                "Management continues to monitor risks, uncertainty, and cost pressure.",
+            ]
+            * 20
+        )
+        document = f"""
+        <html><body>
+          <p>Item 1. Financial Statements</p>
+          <h2>Item 2. Management's Discussion and Analysis</h2>
+          <p>{body}</p>
+          <h2>Item 3. Quantitative and Qualitative Disclosures About Market Risk</h2>
+        </body></html>
+        """
+        analysis = analyze_management_discussion(document, "10-Q")
+        self.assertIsNotNone(analysis)
+        assert analysis is not None
+        self.assertEqual(analysis.section_title, "Item 2. Management's Discussion and Analysis")
+        self.assertIn("Revenue increased", analysis.summary)
+        self.assertGreater(analysis.word_count, 100)
+        self.assertIn(analysis.sentiment_label, {"positive", "neutral", "negative"})
 
 
 def obs(value, fy, fp, form, start, end):

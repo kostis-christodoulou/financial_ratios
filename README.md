@@ -10,6 +10,8 @@ Local EDGAR financial statement and ratio analysis for public companies.
 - Uses Pandas for inspectable transformations.
 - Serves a local Notion-like dashboard with no cloud dependency.
 - Plots ratios over selected date ranges with Plotly.
+- Extracts MD&A sections from recent 10-K/10-Q filings and stores local
+  summaries plus sentiment scores.
 
 ## Setup
 
@@ -43,12 +45,12 @@ Company search is data-driven from the SEC ticker mapping. It scores exact
 ticker matches, legal-name matches, partial name matches, acronyms, token
 overlap, and fuzzy similarity across the full SEC company universe.
 
-Refreshes keep the raw SEC companyfacts JSON in the local HTTP cache, not in
-DuckDB. DuckDB stores only the analysis-ready rows needed by the app: company
-metadata, filings, selected statement items, ratios, and ratio components. This
-keeps the database much smaller while preserving enough source detail to audit
-each ratio back to its numerator, denominator, XBRL tags, accession number, and
-filing.
+Refreshes keep the raw SEC companyfacts JSON and filing HTML in the local HTTP
+cache, not in DuckDB. DuckDB stores only the analysis-ready rows needed by the
+app: company metadata, filings, selected statement items, ratios, ratio
+components, and extracted MD&A summaries/sentiment. This keeps the database much
+smaller while preserving enough source detail to audit each ratio back to its
+numerator, denominator, XBRL tags, accession number, and filing.
 
 ```bash
 uv run finstat refresh MSFT --years 2024 2025 2026
@@ -66,6 +68,18 @@ one from EDGAR. Once loaded, the company appears in the local company selector.
 Open the **Plot** tab, choose a primary company, optionally choose a comparison
 company from the local DB, choose a ratio, set start and end dates, and click
 **Plot**. The chart is generated from local DuckDB ratio rows using Plotly.
+
+## Management Discussion
+
+The **Management** tab shows extracted MD&A sections from recent 10-K and 10-Q
+filings:
+
+- 10-K: `Item 7. Management's Discussion and Analysis`
+- 10-Q: `Item 2. Management's Discussion and Analysis`
+
+The app stores the extracted section text, a one-paragraph local summary, a
+simple dictionary-based sentiment label/score, word count, and SEC source URL.
+No filing narrative is sent to an external AI service.
 
 ## Local Data
 
